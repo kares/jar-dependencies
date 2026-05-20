@@ -69,7 +69,7 @@ module Jars
       ENV[VERBOSE] = verbose.to_s unless verbose.nil?
       ENV[SKIP_LOCK] = 'true'
       require 'jars/lock_down' # do this lazy to keep things clean
-      Jars::LockDown.new(debug, verbose).lock_down(kwargs.delete(:vendor_dir), **kwargs)
+      Jars::LockDown.new.lock_down(kwargs.delete(:vendor_dir), **kwargs)
     ensure
       ENV[DEBUG] = previous_debug unless debug.nil?
       ENV[VERBOSE] = previous_verbose unless verbose.nil?

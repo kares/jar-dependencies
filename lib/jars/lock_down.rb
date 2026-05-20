@@ -1,19 +1,11 @@
 # frozen_string_literal: true
 
-require 'fileutils'
 require 'jar_dependencies'
 require 'jars/version'
 require 'jars/gemspec_artifacts'
 
 module Jars
   class LockDown
-    attr_reader :debug, :verbose
-
-    def initialize(debug, verbose)
-      @debug = debug
-      @verbose = verbose
-    end
-
     def basedir
       File.expand_path('.')
     end
@@ -70,8 +62,6 @@ module Jars
     end
 
     def lock_down(vendor_dir = nil, force: false, update: false, tree: nil) # rubocop:disable Lint/UnusedMethodArgument
-      require 'jars/mima'
-
       lock_file = File.expand_path(Jars.lock)
 
       if !force && File.exist?(lock_file)
@@ -112,6 +102,7 @@ module Jars
 
       # Optionally vendor jars
       if vendor_dir
+        require 'fileutils'
         vendor_path = File.expand_path(vendor_dir)
         resolved.each do |dep|
           next unless dep.type == 'jar' && dep.runtime? && !dep.system?

@@ -1,19 +1,11 @@
 # frozen_string_literal: true
 
-require 'fileutils'
 require 'jar_dependencies'
 require 'jars/version'
 require 'jars/gemspec_artifacts'
 
 module Jars
   class LockDown
-    attr_reader :debug, :verbose
-
-    def initialize(debug, verbose)
-      @debug = debug
-      @verbose = verbose
-    end
-
     def basedir
       File.expand_path('.')
     end
@@ -59,22 +51,17 @@ module Jars
         end
       end
     rescue LoadError => e
-      if Jars.verbose?
-        warn e.message
-        warn 'no bundler found - ignore Gemfile if exists'
-      end
+      Jars.warn "bundler unavailable (#{e.message}); skipping dependency discovery" if Jars.verbose?
     rescue Bundler::GemfileNotFound
-    # do nothing then as we have bundler but no Gemfile
+      # bundler is available, but there is no Gemfile to inspect
     rescue Bundler::GemNotFound
-      warn "can not setup bundler with #{Bundler.default_lockfile}"
+      Jars.warn "cannot set up bundler with #{Bundler.default_lockfile}"
       raise
     ensure
       $LOAD_PATH.replace(load_path)
     end
 
     def lock_down(vendor_dir = nil, force: false, update: false, tree: nil) # rubocop:disable Lint/UnusedMethodArgument
-      require 'jars/mima'
-
       lock_file = File.expand_path(Jars.lock)
 
       if !force && File.exist?(lock_file)
@@ -115,6 +102,7 @@ module Jars
 
       # Optionally vendor jars
       if vendor_dir
+        require 'fileutils'
         vendor_path = File.expand_path(vendor_dir)
         resolved.each do |dep|
           next unless dep.type == 'jar' && dep.runtime? && !dep.system?

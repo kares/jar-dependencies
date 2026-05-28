@@ -30,9 +30,9 @@ jobs:
           ruby-version: ${{ matrix.ruby-version }}
           bundler-cache: true
       - name: Download Mima jars
-        run: bundle exec rake download_jars
+        run: jruby -rbundler/setup -S rake download_jars
       - name: Run tests
-        run: jruby -v -S rake specs
+        run: jruby -v -rbundler/setup -S rake specs
       - name: Run RuboCop
         if: matrix.ruby-version == 'jruby-10.0' # Only run RuboCop on modern JRuby; target older jrubies via .rubocop.yml
-        run: jruby -S rubocop lib
+        run: jruby -rbundler/setup -S rubocop lib

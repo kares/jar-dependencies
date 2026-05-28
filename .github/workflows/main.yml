@@ -9,10 +9,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby-version: [jruby-9.4, jruby-10.0, jruby-head]
+        include:
+          - ruby-version: jruby-9.4
+            java-version: '8'
+          - ruby-version: jruby-10.0
+            java-version: '21'
+          - ruby-version: jruby-head
 
     steps:
       - uses: actions/checkout@v6
+      - name: Set up Java
+        if: matrix.java-version != ''
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java-version }}
       - name: Set up JRuby
         uses: ruby/setup-ruby@v1
         with:
@@ -21,7 +32,7 @@ jobs:
       - name: Download Mima jars
         run: bundle exec rake download_jars
       - name: Run tests
-        run: bundle exec rake specs
+        run: jruby -v -S rake specs
       - name: Run RuboCop
         if: matrix.ruby-version == 'jruby-10.0' # Only run RuboCop on modern JRuby; target older jrubies via .rubocop.yml
-        run: bundle exec rubocop lib
+        run: jruby -S rubocop lib

@@ -3,10 +3,14 @@
 task default: [:specs]
 
 require 'bundler/gem_tasks'
-require 'rubocop/rake_task'
 require 'rake/clean'
 
-RuboCop::RakeTask.new
+begin
+  require 'rubocop/rake_task'
+  RuboCop::RakeTask.new
+rescue LoadError
+  # RuboCop not available; skip defining the task
+end
 
 desc 'run specs'
 task :specs do

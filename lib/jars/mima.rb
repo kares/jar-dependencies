@@ -17,6 +17,8 @@ module Jars
       def ensure_jars_loaded
         return if @@jars_loaded
 
+        configure_logging if Jars.debug?
+
         mima_dir = File.expand_path('mima', File.dirname(__FILE__))
 
         load File.join(mima_dir, "slf4j-api-#{SLF4J_VERSION}.jar")
@@ -49,6 +51,11 @@ module Jars
         # Global settings.xml override
         global = ::Jars::MavenSettings.global_settings
         builder.withGlobalSettingsXmlOverride(java.nio.file.Paths.get(global)) if global
+
+        if Jars.debug?
+          builder.repositoryListener(debug_repository_listener)
+          builder.transferListener(debug_transfer_listener)
+        end
 
         builder.build
       end
@@ -107,6 +114,115 @@ module Jars
       end
 
       private
+
+      def configure_logging
+        return unless Object.const_defined?(:ENV_JAVA)
+
+        set_default_java_property('org.slf4j.simpleLogger.defaultLogLevel', 'info')
+        set_default_java_property('org.slf4j.simpleLogger.showThreadName', 'false')
+        set_default_java_property('org.slf4j.simpleLogger.log.org.apache.maven', 'debug')
+      end
+
+      def set_default_java_property(key, value)
+        ENV_JAVA[key] = value unless ENV_JAVA[key]
+      end
+
+      def debug_repository_listener
+        Java::org.eclipse.aether.RepositoryListener.impl do |method, event|
+          case method
+          when :artifactDescriptorInvalid
+            Jars.debug { "[mima] invalid artifact descriptor #{Jars::Mima.send(:artifact_label, event.getArtifact)}" }
+          when :artifactDescriptorMissing
+            Jars.debug { "[mima] missing artifact descriptor #{Jars::Mima.send(:artifact_label, event.getArtifact)}" }
+          when :metadataInvalid
+            Jars.debug { "[mima] invalid metadata #{Jars::Mima.send(:metadata_label, event.getMetadata)}" }
+          when :artifactResolving
+            Jars.debug { "[mima] resolving artifact #{Jars::Mima.send(:artifact_label, event.getArtifact)}" }
+          when :artifactResolved
+            Jars.debug { Jars::Mima.send(:resolved_message, 'artifact', event) }
+          when :metadataResolving
+            Jars.debug { "[mima] resolving metadata #{Jars::Mima.send(:metadata_label, event.getMetadata)}" }
+          when :metadataResolved
+            Jars.debug { Jars::Mima.send(:resolved_message, 'metadata', event) }
+          when :artifactDownloading
+            Jars.debug { Jars::Mima.send(:download_message, 'artifact', event) }
+          when :artifactDownloaded
+            Jars.debug { Jars::Mima.send(:downloaded_message, 'artifact', event) }
+          when :metadataDownloading
+            Jars.debug { Jars::Mima.send(:download_message, 'metadata', event) }
+          when :metadataDownloaded
+            Jars.debug { Jars::Mima.send(:downloaded_message, 'metadata', event) }
+          end
+        end
+      end
+
+      def debug_transfer_listener
+        Java::org.eclipse.aether.transfer.TransferListener.impl do |method, event|
+          case method
+          when :transferInitiated
+            Jars.debug { Jars::Mima.send(:transfer_message, 'initiated', event) }
+          when :transferStarted
+            Jars.debug { Jars::Mima.send(:transfer_message, 'started', event) }
+          when :transferCorrupted
+            Jars.debug { Jars::Mima.send(:transfer_message, 'corrupted', event) }
+          when :transferSucceeded
+            Jars.debug { Jars::Mima.send(:transfer_message, 'succeeded', event, bytes: true) }
+          when :transferFailed
+            Jars.debug { Jars::Mima.send(:transfer_message, 'failed', event) }
+          end
+        end
+      end
+
+      def resolved_message(kind, event)
+        message = +"[mima] resolved #{kind} #{repository_item_label(event)}"
+        message << " -> #{event.getFile.getAbsolutePath}" if event.getFile
+        message << " (#{event.getException.message})" if event.getException
+        message
+      end
+
+      def download_message(kind, event)
+        message = +"[mima] downloading #{kind} #{repository_item_label(event)}"
+        repository = event.getRepository
+        message << " from #{repository}" if repository
+        message
+      end
+
+      def downloaded_message(kind, event)
+        message = +"[mima] downloaded #{kind} #{repository_item_label(event)}"
+        message << " -> #{event.getFile.getAbsolutePath}" if event.getFile
+        message << " (#{event.getException.message})" if event.getException
+        message
+      end
+
+      def repository_item_label(event)
+        artifact = event.getArtifact
+        return artifact_label(artifact) if artifact
+
+        metadata_label(event.getMetadata)
+      end
+
+      def artifact_label(artifact)
+        artifact ? artifact.toString : 'unknown'
+      end
+
+      def metadata_label(metadata)
+        metadata ? metadata.toString : 'unknown'
+      end
+
+      def transfer_message(action, event, bytes: false)
+        resource = event.getResource
+        location = "#{resource.getRepositoryUrl}#{resource.getResourceName}"
+        message = +"[mima] transfer #{action} #{event.getRequestType.to_s.downcase} #{location}"
+        message << " (#{format_bytes(event.getTransferredBytes)})" if bytes
+        message << " (#{event.getException})" if event.getException
+        message
+      end
+
+      def format_bytes(bytes)
+        return "#{bytes} B" if bytes < 1024
+
+        "#{(bytes / 1024.0).round(1)} KB"
+      end
 
       # Converts {GemspecArtifacts::Artifact} objects to Aether +Dependency+ list,
       # filtering by scope unless +all_dependencies+ is set.

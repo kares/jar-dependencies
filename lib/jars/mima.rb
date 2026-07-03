@@ -108,9 +108,7 @@ module Jars
         result = context.repositorySystem.resolveDependencies(
           context.repositorySystemSession, dependency_request
         )
-
-        root = result.getRoot
-        collect_resolved(root)
+        collect_resolved(result.getRoot)
       end
 
       private
@@ -131,27 +129,27 @@ module Jars
         Java::org.eclipse.aether.RepositoryListener.impl do |method, event|
           case method
           when :artifactDescriptorInvalid
-            Jars.debug { "[mima] invalid artifact descriptor #{Jars::Mima.send(:artifact_label, event.getArtifact)}" }
+            Jars.debug { "[mima] invalid artifact descriptor #{artifact_label(event.getArtifact)}" }
           when :artifactDescriptorMissing
-            Jars.debug { "[mima] missing artifact descriptor #{Jars::Mima.send(:artifact_label, event.getArtifact)}" }
+            Jars.debug { "[mima] missing artifact descriptor #{artifact_label(event.getArtifact)}" }
           when :metadataInvalid
-            Jars.debug { "[mima] invalid metadata #{Jars::Mima.send(:metadata_label, event.getMetadata)}" }
+            Jars.debug { "[mima] invalid metadata #{metadata_label(event.getMetadata)}" }
           when :artifactResolving
-            Jars.debug { "[mima] resolving artifact #{Jars::Mima.send(:artifact_label, event.getArtifact)}" }
+            Jars.debug { "[mima] resolving artifact #{artifact_label(event.getArtifact)}" }
           when :artifactResolved
-            Jars.debug { Jars::Mima.send(:resolved_message, 'artifact', event) }
+            Jars.debug { resolved_message('artifact', event) }
           when :metadataResolving
-            Jars.debug { "[mima] resolving metadata #{Jars::Mima.send(:metadata_label, event.getMetadata)}" }
+            Jars.debug { "[mima] resolving metadata #{metadata_label(event.getMetadata)}" }
           when :metadataResolved
-            Jars.debug { Jars::Mima.send(:resolved_message, 'metadata', event) }
+            Jars.debug { resolved_message('metadata', event) }
           when :artifactDownloading
-            Jars.debug { Jars::Mima.send(:download_message, 'artifact', event) }
+            Jars.debug { download_message('artifact', event) }
           when :artifactDownloaded
-            Jars.debug { Jars::Mima.send(:downloaded_message, 'artifact', event) }
+            Jars.debug { downloaded_message('artifact', event) }
           when :metadataDownloading
-            Jars.debug { Jars::Mima.send(:download_message, 'metadata', event) }
+            Jars.debug { download_message('metadata', event) }
           when :metadataDownloaded
-            Jars.debug { Jars::Mima.send(:downloaded_message, 'metadata', event) }
+            Jars.debug { downloaded_message('metadata', event) }
           end
         end
       end
@@ -160,15 +158,15 @@ module Jars
         Java::org.eclipse.aether.transfer.TransferListener.impl do |method, event|
           case method
           when :transferInitiated
-            Jars.debug { Jars::Mima.send(:transfer_message, 'initiated', event) }
+            Jars.debug { transfer_message('initiated', event) }
           when :transferStarted
-            Jars.debug { Jars::Mima.send(:transfer_message, 'started', event) }
+            Jars.debug { transfer_message('started', event) }
           when :transferCorrupted
-            Jars.debug { Jars::Mima.send(:transfer_message, 'corrupted', event) }
+            Jars.debug { transfer_message('corrupted', event) }
           when :transferSucceeded
-            Jars.debug { Jars::Mima.send(:transfer_message, 'succeeded', event, bytes: true) }
+            Jars.debug { transfer_message('succeeded', event, bytes: true) }
           when :transferFailed
-            Jars.debug { Jars::Mima.send(:transfer_message, 'failed', event) }
+            Jars.debug { transfer_message('failed', event) }
           end
         end
       end
@@ -202,11 +200,11 @@ module Jars
       end
 
       def artifact_label(artifact)
-        artifact ? artifact.toString : 'unknown'
+        artifact&.to_s || 'unknown'
       end
 
       def metadata_label(metadata)
-        metadata ? metadata.toString : 'unknown'
+        metadata&.to_s || 'unknown'
       end
 
       def transfer_message(action, event, bytes: false)

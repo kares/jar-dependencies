@@ -17,6 +17,8 @@ module Jars
       def ensure_jars_loaded
         return if @@jars_loaded
 
+        configure_logging if Jars.debug?
+
         mima_dir = File.expand_path('mima', File.dirname(__FILE__))
 
         load File.join(mima_dir, "slf4j-api-#{SLF4J_VERSION}.jar")
@@ -50,6 +52,8 @@ module Jars
         global = ::Jars::MavenSettings.global_settings
         builder.withGlobalSettingsXmlOverride(java.nio.file.Paths.get(global)) if global
 
+        builder.repositoryListener(aether_repository_listener)
+        builder.transferListener(aether_transfer_listener)
         builder.build
       end
 
@@ -101,12 +105,119 @@ module Jars
         result = context.repositorySystem.resolveDependencies(
           context.repositorySystemSession, dependency_request
         )
-
-        root = result.getRoot
-        collect_resolved(root)
+        collect_resolved(result.getRoot)
       end
 
       private
+
+      def configure_logging
+        return unless Object.const_defined?(:ENV_JAVA)
+
+        set_default_java_property('org.slf4j.simpleLogger.defaultLogLevel', 'info')
+        set_default_java_property('org.slf4j.simpleLogger.showThreadName', 'false')
+        set_default_java_property('org.slf4j.simpleLogger.log.org.apache.maven', 'debug')
+      end
+
+      def set_default_java_property(key, value)
+        ENV_JAVA[key] = value unless ENV_JAVA[key]
+      end
+
+      def aether_repository_listener
+        org.eclipse.aether.RepositoryListener.impl do |method, event|
+          case method
+          when :artifactDescriptorInvalid
+            Jars.debug { "[mima] invalid artifact descriptor #{artifact_label(event.getArtifact)}" }
+          when :artifactDescriptorMissing
+            Jars.debug { "[mima] missing artifact descriptor #{artifact_label(event.getArtifact)}" }
+          when :metadataInvalid
+            Jars.debug { "[mima] invalid metadata #{metadata_label(event.getMetadata)}" }
+          when :artifactResolving
+            Jars.debug { "[mima] resolving artifact #{artifact_label(event.getArtifact)}" }
+          when :artifactResolved
+            Jars.debug { resolved_message('artifact', event) }
+          when :metadataResolving
+            Jars.debug { "[mima] resolving metadata #{metadata_label(event.getMetadata)}" }
+          when :metadataResolved
+            Jars.debug { resolved_message('metadata', event) }
+          when :artifactDownloading
+            Jars.debug { download_message('artifact', event) }
+          when :artifactDownloaded
+            Jars.debug { downloaded_message('artifact', event) }
+          when :metadataDownloading
+            Jars.debug { download_message('metadata', event) }
+          when :metadataDownloaded
+            Jars.debug { downloaded_message('metadata', event) }
+          end
+        end
+      end
+
+      def aether_transfer_listener
+        org.eclipse.aether.transfer.TransferListener.impl do |method, event|
+          case method
+          when :transferInitiated
+            Jars.debug { transfer_message('initiated', event) }
+          when :transferStarted
+            Jars.debug { transfer_message('started', event) }
+          when :transferCorrupted
+            Jars.debug { transfer_message('corrupted', event) }
+          when :transferSucceeded
+            Jars.debug { transfer_message('succeeded', event, bytes: true) }
+          when :transferFailed
+            Jars.debug { transfer_message('failed', event) }
+          end
+        end
+      end
+
+      def resolved_message(kind, event)
+        message = +"[mima] resolved #{kind} #{repository_item_label(event)}"
+        message << " -> #{event.getFile.getAbsolutePath}" if event.getFile
+        message << " (#{event.getException.message})" if event.getException
+        message
+      end
+
+      def download_message(kind, event)
+        message = +"[mima] downloading #{kind} #{repository_item_label(event)}"
+        repository = event.getRepository
+        message << " from #{repository}" if repository
+        message
+      end
+
+      def downloaded_message(kind, event)
+        message = +"[mima] downloaded #{kind} #{repository_item_label(event)}"
+        message << " -> #{event.getFile.getAbsolutePath}" if event.getFile
+        message << " (#{event.getException.message})" if event.getException
+        message
+      end
+
+      def repository_item_label(event)
+        artifact = event.getArtifact
+        return artifact_label(artifact) if artifact
+
+        metadata_label(event.getMetadata)
+      end
+
+      def artifact_label(artifact)
+        artifact&.to_s || 'unknown'
+      end
+
+      def metadata_label(metadata)
+        metadata&.to_s || 'unknown'
+      end
+
+      def transfer_message(action, event, bytes: false)
+        resource = event.getResource
+        location = "#{resource.getRepositoryUrl}#{resource.getResourceName}"
+        message = +"[mima] transfer #{action} #{event.getRequestType.to_s.downcase} #{location}"
+        message << " (#{format_bytes(event.getTransferredBytes)})" if bytes
+        message << " (#{event.getException})" if event.getException
+        message
+      end
+
+      def format_bytes(bytes)
+        return "#{bytes} B" if bytes < 1024
+
+        "#{(bytes / 1024.0).round(1)} KB"
+      end
 
       # Converts {GemspecArtifacts::Artifact} objects to Aether +Dependency+ list,
       # filtering by scope unless +all_dependencies+ is set.
@@ -115,17 +226,17 @@ module Jars
       # @param all_dependencies [Boolean]
       # @return [Array<org.eclipse.aether.graph.Dependency>]
       def artifacts_to_dependencies(artifacts, all_dependencies: false)
-        filtered = artifacts.select do |a|
-          all_dependencies || (a.scope != 'provided' && a.scope != 'test')
+        filtered_artifacts = artifacts.select do |artifact|
+          all_dependencies || (artifact.scope != 'provided' && artifact.scope != 'test')
         end
 
-        filtered.map do |a|
-          aether_artifact = build_aether_artifact(a)
-          scope = a.scope || 'compile'
+        filtered_artifacts.map do |artifact|
+          aether_artifact = build_aether_artifact(artifact)
+          scope = artifact.scope || 'compile'
           dep = org.eclipse.aether.graph.Dependency.new(aether_artifact, scope)
 
-          if a.exclusions && !a.exclusions.empty?
-            exclusions = a.exclusions.map do |ex|
+          if artifact.exclusions && !artifact.exclusions.empty?
+            exclusions = artifact.exclusions.map do |ex|
               org.eclipse.aether.graph.Exclusion.new(ex.group_id, ex.artifact_id, '*', '*')
             end
             dep = dep.setExclusions(exclusions)

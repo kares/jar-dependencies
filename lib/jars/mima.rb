@@ -52,11 +52,8 @@ module Jars
         global = ::Jars::MavenSettings.global_settings
         builder.withGlobalSettingsXmlOverride(java.nio.file.Paths.get(global)) if global
 
-        if Jars.debug?
-          builder.repositoryListener(debug_repository_listener)
-          builder.transferListener(debug_transfer_listener)
-        end
-
+        builder.repositoryListener(aether_repository_listener)
+        builder.transferListener(aether_transfer_listener)
         builder.build
       end
 
@@ -125,8 +122,8 @@ module Jars
         ENV_JAVA[key] = value unless ENV_JAVA[key]
       end
 
-      def debug_repository_listener
-        Java::org.eclipse.aether.RepositoryListener.impl do |method, event|
+      def aether_repository_listener
+        org.eclipse.aether.RepositoryListener.impl do |method, event|
           case method
           when :artifactDescriptorInvalid
             Jars.debug { "[mima] invalid artifact descriptor #{artifact_label(event.getArtifact)}" }
@@ -154,8 +151,8 @@ module Jars
         end
       end
 
-      def debug_transfer_listener
-        Java::org.eclipse.aether.transfer.TransferListener.impl do |method, event|
+      def aether_transfer_listener
+        org.eclipse.aether.transfer.TransferListener.impl do |method, event|
           case method
           when :transferInitiated
             Jars.debug { transfer_message('initiated', event) }
@@ -229,17 +226,17 @@ module Jars
       # @param all_dependencies [Boolean]
       # @return [Array<org.eclipse.aether.graph.Dependency>]
       def artifacts_to_dependencies(artifacts, all_dependencies: false)
-        filtered = artifacts.select do |a|
-          all_dependencies || (a.scope != 'provided' && a.scope != 'test')
+        filtered_artifacts = artifacts.select do |artifact|
+          all_dependencies || (artifact.scope != 'provided' && artifact.scope != 'test')
         end
 
-        filtered.map do |a|
-          aether_artifact = build_aether_artifact(a)
-          scope = a.scope || 'compile'
+        filtered_artifacts.map do |artifact|
+          aether_artifact = build_aether_artifact(artifact)
+          scope = artifact.scope || 'compile'
           dep = org.eclipse.aether.graph.Dependency.new(aether_artifact, scope)
 
-          if a.exclusions && !a.exclusions.empty?
-            exclusions = a.exclusions.map do |ex|
+          if artifact.exclusions && !artifact.exclusions.empty?
+            exclusions = artifact.exclusions.map do |ex|
               org.eclipse.aether.graph.Exclusion.new(ex.group_id, ex.artifact_id, '*', '*')
             end
             dep = dep.setExclusions(exclusions)

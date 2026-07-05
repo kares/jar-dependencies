@@ -27,18 +27,16 @@ describe Jars::Mima do
   it 'produces debug output from debug listeners' do
     ENV['JARS_DEBUG'] = 'true'
     $stderr = StringIO.new
-    context = Jars::Mima.create_context
 
-    artifact = org.eclipse.aether.artifact.DefaultArtifact.new('org.example', 'example', 'jar', '1.0')
-    event_type = org.eclipse.aether.RepositoryEvent::EventType::ARTIFACT_RESOLVING
-    event = org.eclipse.aether.RepositoryEvent::Builder.new(context.repositorySystemSession,
-                                                            event_type).setArtifact(artifact).build
-
-    Jars::Mima.send(:debug_repository_listener).artifactResolving(event)
+    artifact = Jars::GemspecArtifacts::Artifact.new('jar org.example:example, 1.0')
+    begin
+      Jars::Mima.resolve_artifacts([ artifact ])
+    rescue org.eclipse.aether.resolution.DependencyResolutionException
+      # expected
+    end
 
     _($stderr.string).must_include '[mima] resolving artifact org.example:example:jar:1.0'
   ensure
-    context&.close
     $stderr = STDERR
   end
 end
